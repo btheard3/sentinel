@@ -1,29 +1,26 @@
 import streamlit as st
 import pandas as pd
+import os
 
-st.set_page_config(page_title="PreMarket Sentinel", layout="wide")
+st.set_page_config(page_title="📈 PreMarket Sentinel – AI-Powered Trade Scanner", layout="wide")
 
 st.title("📈 PreMarket Sentinel – AI-Powered Trade Scanner")
 
-# Load saved daily report CSV or pull from notebook
-try:
-    df = pd.read_csv("daily_report.csv")
-    st.success("Loaded today's Sentinel report.")
-except:
-    st.warning("No saved report found. Please run the notebook first.")
-    st.stop()
+# Path to saved report
+report_path = "notebooks/daily_report.csv"
 
-# Filter by setup
-setup_filter = st.multiselect("Filter by Setup", options=df["Setup"].unique(), default=list(df["Setup"].unique()))
-filtered = df[df["Setup"].isin(setup_filter)]
+# Try to load saved report
+if os.path.exists(report_path):
+    try:
+        df = pd.read_csv(report_path)
 
-# Show table
-st.dataframe(filtered, use_container_width=True)
+        if not df.empty:
+            st.success("✅ Report loaded successfully.")
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.warning("⚠️ Report is empty. Please check your data.")
+    except Exception as e:
+        st.error(f"❌ Failed to load report: {e}")
+else:
+    st.warning("⚠️ No saved report found. Please run the notebook or script to generate `daily_report.csv`.")
 
-# Summary stats
-st.markdown("### Summary Stats")
-st.metric("Tickers Flagged", len(filtered))
-st.metric("Avg Premarket Move", f"{filtered['Premarket % Change'].mean():.2f}%")
-
-# Export option
-st.download_button("📥 Download Report", data=filtered.to_csv(index=False), file_name="sentinel_report.csv")
