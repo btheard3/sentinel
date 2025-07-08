@@ -33,7 +33,7 @@ def fetch_premarket_movers():
     df = pd.DataFrame(data)
     return df
 
-def save_report(df, path="notebooks/daily_report.csv"):
+def save_report(df, path="data/daily_report.csv"):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     df.to_csv(path, index=False)
     print(f"✅ Saved report to {path}")
