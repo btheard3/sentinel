@@ -1,116 +1,121 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
-from datetime import datetime
-from openai import OpenAIError
-import openai
+import requests
 import os
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
-# Load data
+# Load environment variables
+load_dotenv()
+POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
+
+# Config
+USE_POLYGON_LIVE = True
+CSV_DATA_PATH = "/home/btheard/sentinel/data/all_stocks_5yr.csv"
+
+# Load CSV Data
 @st.cache_data
-def load_data():
-    df = pd.read_csv("data/all_stocks_5yr.csv")
+def load_csv_data():
+    df = pd.read_csv(CSV_DATA_PATH)
     df.columns = [col.lower().strip() for col in df.columns]
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
     return df
 
-df = load_data()
+# Polygon.io Live Fetch
+def fetch_polygon_data(ticker, start, end):
+    url = (
+        f"https://api.polygon.io/v2/aggs/ticker/{ticker.upper()}/range/1/day/"
+        f"{start}/{end}?adjusted=true&sort=asc&limit=5000&apiKey={POLYGON_API_KEY}"
+    )
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    data = r.json().get('results', [])
+    if not data:
+        return None
+    df = pd.DataFrame(data)
+    df['date'] = pd.to_datetime(df['t'], unit='ms')
+    df['close'] = df['c']
+    return df[['date', 'close']].copy()
 
-# Sidebar Filters
-tickers = df['name'].unique().tolist()
-selected_ticker = st.sidebar.selectbox("Select Ticker", tickers)
+# UI
+st.title("📊 PreMarket Sentinel")
 
-min_date = df['date'].min()
-max_date = df['date'].max()
-date_range = st.sidebar.date_input("Select Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
+st.sidebar.header("Select Ticker")
+default_ticker = "AAPL"
+ticker = st.sidebar.text_input("Ticker", value=default_ticker).upper()
 
-# Main Title
-st.title("📈 PreMarket Sentinel")
-st.caption("Analyze historical stock signals, KPIs, and trade recommendations.")
+st.sidebar.header("Select Date Range")
+today = datetime.now()
+default_range = [today - timedelta(days=60), today]
+date_range = st.sidebar.date_input("Date Range", default_range)
 
-# Filter Data
-mask = (
-    (df['name'] == selected_ticker) &
-    (df['date'] >= pd.to_datetime(date_range[0])) &
-    (df['date'] <= pd.to_datetime(date_range[1]))
+# Dates
+if len(date_range) != 2:
+    st.warning("Select a valid start and end date.")
+    st.stop()
+
+start_date = pd.to_datetime(date_range[0])
+end_date = pd.to_datetime(date_range[1])
+
+# Load local CSV
+csv_df = load_csv_data()
+
+# Use live data if selected range is outside CSV data
+use_live = (
+    USE_POLYGON_LIVE and
+    (start_date > csv_df['date'].max() or end_date > csv_df['date'].max())
 )
-filtered = df[mask]
 
-# Price Chart
-st.subheader(f"📉 Price Trend for {selected_ticker}")
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(filtered['date'], filtered['close'], label='Close Price', color='skyblue')
-ax.set_title(f"{selected_ticker} Close Price Over Time")
-ax.set_xlabel("Date")
-ax.set_ylabel("Price")
-ax.legend()
-st.pyplot(fig)
-
-# KPIs
-avg_close = round(filtered['close'].mean(), 2)
-max_close = round(filtered['close'].max(), 2)
-min_close = round(filtered['close'].min(), 2)
-
-st.markdown("### 🌟 Key Stats")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("🗓️ Date Range", f"{date_range[0]} → {date_range[1]}")
-col2.metric("📊 Avg Close", f"${avg_close}")
-col3.metric("📈 Max Close", f"${max_close}")
-col4.metric("📉 Min Close", f"${min_close}")
-
-# Volume Chart
-st.subheader(f"📦 Volume Trend for {selected_ticker}")
-fig, ax = plt.subplots(figsize=(10, 2))
-ax.bar(filtered['date'], filtered['volume'], color='orange', width=2)
-ax.set_title("Daily Trading Volume")
-ax.set_ylabel("Volume")
-st.pyplot(fig)
-
-# Rolling Volatility
-st.subheader("📉 20-Day Rolling Volatility")
-filtered['volatility'] = filtered['close'].pct_change().rolling(window=20).std()
-fig, ax = plt.subplots(figsize=(10, 2))
-ax.plot(filtered['date'], filtered['volatility'], color='red')
-ax.set_ylabel("Volatility")
-st.pyplot(fig)
-
-# Trade Recommendation
-last_close = filtered['close'].iloc[-1]
-threshold_buy = avg_close * 0.90
-threshold_sell = avg_close * 1.10
-
-if last_close < threshold_buy:
-    trade_signal = "🟢 BUY - Undervalued"
-elif last_close > threshold_sell:
-    trade_signal = "🔴 SELL - Overvalued"
+if use_live:
+    st.info("Using live data from Polygon.io")
+    df_filtered = fetch_polygon_data(ticker, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+    if df_filtered is None or df_filtered.empty:
+        st.error("No live data available for this range.")
+        st.stop()
 else:
-    trade_signal = "🟡 HOLD - Fairly Valued"
+    df_filtered = csv_df[
+        (csv_df['name'] == ticker) &
+        (csv_df['date'] >= start_date) &
+        (csv_df['date'] <= end_date)
+    ].copy()
+    if df_filtered.empty:
+        st.error("No historical data for selected range/ticker.")
+        st.stop()
 
-st.markdown("### 💡 Trade Recommendation")
-st.success(f"Based on the selected date range, the current close price of **${last_close:.2f}** suggests: **{trade_signal}**")
+# KPI
+avg_close = round(df_filtered['close'].mean(), 2)
+volatility = round(df_filtered['close'].std() / df_filtered['close'].mean(), 4)
+min_close = df_filtered['close'].min()
+max_close = df_filtered['close'].max()
+last_close = df_filtered.iloc[-1]['close']
 
-# Summary with optional LLM
-st.subheader("🧠 Summary")
-default_summary = f"""
-From {date_range[0]} to {date_range[1]}, {selected_ticker} traded between ${min_close} and ${max_close}.
-The average close price was ${avg_close}, with trading volume peaking at {int(filtered['volume'].max()):,}.
-"""
+st.subheader("📈 KPI Metrics")
+st.metric("Average Close", f"${avg_close}")
+st.metric("Volatility", f"{volatility*100:.2f}%")
+st.metric("Last Close", f"${last_close:.2f}")
 
-if "OPENAI_API_KEY" in os.environ:
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    try:
-        prompt = f"Summarize this stock data insight: {default_summary}"
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        st.info(response.choices[0].message.content.strip())
-    except OpenAIError as e:
-        st.warning(f"LLM summary failed: {e}")
-        st.text(default_summary)
-else:
-    st.text(default_summary)
+# Trade Signal
+st.subheader("💡 Trade Recommendation")
+signal = "BUY" if last_close < avg_close else "SELL"
+st.success(
+    f"Based on the selected range, the current price of ${last_close:.2f} suggests: "
+    f"{'🟢 BUY - Undervalued' if signal == 'BUY' else '🔴 SELL - Overvalued'}"
+)
+
+# Charts
+st.subheader("📉 Price Chart")
+st.line_chart(df_filtered.set_index('date')['close'])
+
+st.subheader("📊 Volatility")
+st.line_chart(df_filtered.set_index('date')['close'].pct_change().rolling(5).std())
+
+
+
+
+
+
+
 
 
