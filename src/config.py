@@ -11,7 +11,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 RAW_DIR = os.path.join(DATA_DIR, "raw")
 PROCESSED_DIR = os.path.join(DATA_DIR, "processed")
-JOURNAL_DIR = os.path.join(BASE_DIR, "trade_journal")
+JOURNAL_DIR = os.path.join(BASE_DIR, "data", "journal")
 
 # API keys
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "")
