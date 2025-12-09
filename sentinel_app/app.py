@@ -12,6 +12,11 @@ from sklearn.metrics import (
     mean_squared_error,
 )
 
+import os
+...
+ENV = os.environ.get("SENTINEL_ENV", "dev")
+st.sidebar.caption(f"Environment: `{ENV}`")
+
 # ---------- Paths ----------
 
 APP_DIR = Path(__file__).resolve().parent          # .../sentinel_app
@@ -123,6 +128,9 @@ st.write(
 with st.sidebar:
     st.header("Sample Sweep Selector")
     st.caption("Use a real row from the training set to sanity-check model wiring.")
+
+    env = os.environ.get("SENTINEL_ENV", "dev")
+    st.caption(f"Environment: `{env}`")
 
     max_idx = len(df) - 1
     idx = st.number_input(
