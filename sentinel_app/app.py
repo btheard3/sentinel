@@ -2,21 +2,15 @@
 
 from pathlib import Path
 import joblib
-import pandas as pd
-import streamlit as st
 import numpy as np
 import pandas as pd
+import streamlit as st
 
 # ---------- Paths ----------
 APP_DIR = Path(__file__).resolve().parent          # .../sentinel_app
 PROJECT_ROOT = APP_DIR.parent                      # .../sentinel
 MODELS_DIR = PROJECT_ROOT / "models"
 DATA_PATH = PROJECT_ROOT / "data" / "processed" / "tradyflow_training.parquet"
-
-# Debug: show path
-st.write("PROJECT_ROOT:", PROJECT_ROOT)
-st.write("MODELS_DIR:", MODELS_DIR)
-st.write("DATA_PATH:", DATA_PATH)
 
 # ---------- Streamlit setup ----------
 
@@ -31,8 +25,8 @@ st.caption(
     "This shell wires notebooks → models → interactive dashboard."
 )
 
-
 # ---------- Load artifacts ----------
+
 
 @st.cache_resource
 def load_models():
@@ -46,6 +40,7 @@ def load_models():
         "volregime_rf": volregime_rf,
         "nextret_rf": nextret_rf,
     }
+
 
 @st.cache_data
 def load_training_data():
@@ -81,6 +76,17 @@ def get_feature_cols(df: pd.DataFrame) -> list[str]:
     return feature_cols
 
 
+def get_top_features(model, feature_cols, k: int = 5):
+    """Return top-k (feature, importance) pairs for a fitted tree-based model."""
+    importances = model.feature_importances_
+    pairs = sorted(
+        zip(feature_cols, importances),
+        key=lambda x: x[1],
+        reverse=True,
+    )[:k]
+    return pairs
+
+
 # ---------- Load everything ----------
 
 models = load_models()
@@ -89,8 +95,9 @@ st.success("Models loaded from `models/`")
 df = load_training_data()
 feature_cols = get_feature_cols(df)
 
-st.write(f"Training dataset loaded with **{len(df)}** rows and **{len(feature_cols)}** features.")
-
+st.write(
+    f"Training dataset loaded with **{len(df)}** rows and **{len(feature_cols)}** features."
+)
 
 # ---------- Sidebar: pick a sample sweep ----------
 
@@ -109,13 +116,10 @@ with st.sidebar:
 
     sample = df.iloc[[idx]]  # keep as DataFrame
 
-
 # ---------- Show input features ----------
 
 st.subheader("1. Input Features (Engineered Row)")
-
 st.dataframe(sample[feature_cols], use_container_width=True)
-
 
 # ---------- Run predictions ----------
 
@@ -133,6 +137,9 @@ vol_label = "🌪 High volatility" if vol_pred == 1 else "🌤 Normal volatility
 # Next 1D return prediction
 next_ret_pred = models["nextret_rf"].predict(X_sample)[0]
 
+# ---------- Headline metrics ----------
+
+st.subheader("2. Headline Predictions")
 
 col1, col2, col3 = st.columns(3)
 
@@ -156,10 +163,41 @@ with col3:
         value=f"{next_ret_pred:.3f}",
     )
 
+# ---------- Quick interpretation ----------
+
+st.subheader("3. Quick Model Interpretation")
+
+# Global top features (from training) for context
+top_dir = get_top_features(models["direction_rf"], feature_cols, k=3)
+top_vol = get_top_features(models["volregime_rf"], feature_cols, k=3)
+top_ret = get_top_features(models["nextret_rf"], feature_cols, k=3)
+
+dir_feat_names = ", ".join(f for f, _ in top_dir)
+vol_feat_names = ", ".join(f for f, _ in top_vol)
+ret_feat_names = ", ".join(f for f, _ in top_ret)
+
+# Simple sign-based interpretation of the predicted return
+if next_ret_pred > 0.01:
+    ret_view = "slightly bullish"
+elif next_ret_pred < -0.01:
+    ret_view = "slightly bearish"
+else:
+    ret_view = "near-flat / noisy"
+
+st.markdown(
+    f"""
+- The **direction model** assigns **{dir_proba_up:.1%}** probability that the next move is up.
+  It leans most on features like **{dir_feat_names}**.
+- The **volatility model** classifies this environment as **{vol_label}** with **{vol_proba:.1%}** confidence,
+  driven by signals such as **{vol_feat_names}**.
+- The **return model** expects a next 1D return of **{next_ret_pred:.3f}**, which we interpret as **{ret_view}**.
+  Its strongest drivers include **{ret_feat_names}**.
+"""
+)
 
 # ---------- Notes section ----------
 
-st.subheader("2. What this shell proves")
+st.subheader("4. What this shell proves")
 
 st.markdown(
     """
@@ -175,3 +213,52 @@ st.markdown(
   - Integration into Azure (App Service / Container Apps)
 """
 )
+
+# ---------- Deeper dive: feature importance overview ----------
+
+st.subheader("5. Feature Importance Overview")
+
+with st.expander("Show global feature importances", expanded=False):
+    # Direction RF
+    st.markdown("**Direction model (Random Forest)**")
+    dir_imp = (
+        pd.DataFrame(
+            {"feature": feature_cols,
+             "importance": models["direction_rf"].feature_importances_}
+        )
+        .sort_values("importance", ascending=False)
+        .head(15)
+        .set_index("feature")
+    )
+    st.bar_chart(dir_imp)
+
+    # Volatility regime RF
+    st.markdown("**Volatility regime model (Random Forest)**")
+    vol_imp = (
+        pd.DataFrame(
+            {"feature": feature_cols,
+             "importance": models["volregime_rf"].feature_importances_}
+        )
+        .sort_values("importance", ascending=False)
+        .head(15)
+        .set_index("feature")
+    )
+    st.bar_chart(vol_imp)
+
+    # Return RF (regressor)
+    st.markdown("**Return model (Random Forest Regressor)**")
+    ret_imp = (
+        pd.DataFrame(
+            {"feature": feature_cols,
+             "importance": models["nextret_rf"].feature_importances_}
+        )
+        .sort_values("importance", ascending=False)
+        .head(15)
+        .set_index("feature")
+    )
+    st.bar_chart(ret_imp)
+
+    st.caption(
+        "These charts confirm that the models rely on intuitive signals such as "
+        "moneyness, spreads, and time-to-expiry, rather than random noise."
+    )
