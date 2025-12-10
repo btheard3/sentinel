@@ -35,8 +35,7 @@ jobs:
       - name: Install Container Apps extension
         run: |
           az extension add -n containerapp --yes
-          az provider register --namespace Microsoft.App --wait
-          az provider register --namespace Microsoft.OperationalInsights --wait
+
 
       - name: Build and push image to ACR
         run: |

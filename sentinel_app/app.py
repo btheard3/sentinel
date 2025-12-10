@@ -30,10 +30,10 @@ KEY_MANUAL_FEATURES = [
 
 # ---------- Paths ----------
 
-# APP_DIR = Path(__file__).resolve().parent          # .../sentinel_app
-# PROJECT_ROOT = APP_DIR.parent                      # .../sentinel
-# MODELS_DIR = PROJECT_ROOT / "models"
-# DATA_PATH = PROJECT_ROOT / "data" / "processed" / "tradyflow_training.parquet"
+APP_DIR = Path(__file__).resolve().parent          # .../sentinel_app
+PROJECT_ROOT = APP_DIR.parent                      # .../sentinel
+MODELS_DIR = PROJECT_ROOT / "models"
+DATA_PATH = PROJECT_ROOT / "data" / "processed" / "tradyflow_training.parquet"
 
 # ---------- Streamlit setup ----------
 
