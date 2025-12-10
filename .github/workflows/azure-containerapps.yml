@@ -1,0 +1,61 @@
+name: Deploy Sentinel Baseline Panel
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "sentinel_app/**"
+      - "Dockerfile"
+      - ".github/workflows/azure-containerapps.yml"
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      # Azure + ACR config (from what you've already set up)
+      RESOURCE_GROUP: sentinel-rg
+      CONTAINERAPPS_ENVIRONMENT: sentinel-env
+      CONTAINERAPP_NAME: sentinel-baseline-panel
+
+      ACR_NAME: sentinelregistry2025
+      ACR_LOGIN_SERVER: sentinelregistry2025.azurecr.io
+      IMAGE_NAME: sentinel-baseline
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Container Apps extension
+        run: |
+          az extension add -n containerapp --yes
+          az provider register --namespace Microsoft.App --wait
+          az provider register --namespace Microsoft.OperationalInsights --wait
+
+      - name: Build and push image to ACR
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          FULL_IMAGE="$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG"
+
+          echo "Building image: $FULL_IMAGE"
+
+          az acr login --name $ACR_NAME
+
+          docker build -t "$FULL_IMAGE" .
+          docker push "$FULL_IMAGE"
+
+          echo "FULL_IMAGE=$FULL_IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Azure Container Apps
+        run: |
+          az containerapp update \
+            --name $CONTAINERAPP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --image "$FULL_IMAGE" \
+            --set-env-vars SENTINEL_ENV=prod

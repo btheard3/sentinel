@@ -18,4 +18,4 @@ trade_journal/template/*.xlsx
 # VSCode / OS
 .vscode/
 .DS_Store
-.github/workflows/
+
