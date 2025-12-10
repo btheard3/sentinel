@@ -17,6 +17,17 @@ import os
 ENV = os.environ.get("SENTINEL_ENV", "dev")
 st.sidebar.caption(f"Environment: `{ENV}`")
 
+# Key features we want to expose for manual input (only used if present in df)
+KEY_MANUAL_FEATURES = [
+    "Spot",
+    "Strike",
+    "DTE",
+    "spread_pct",
+    "flow_intensity",
+    "OI_velocity",
+    "volume_zscore",
+]
+
 # ---------- Paths ----------
 
 APP_DIR = Path(__file__).resolve().parent          # .../sentinel_app
@@ -186,9 +197,118 @@ with col3:
         value=f"{next_ret_pred:.3f}",
     )
 
+# ---------- Manual Sweep Input (Advanced) ----------
+
+st.subheader("2. Manual Sweep Input (Advanced)")
+
+st.markdown(
+    """
+    Use this panel to **type in a custom options sweep**.
+
+    - We start from the currently selected training row.
+    - You can override a few **high-impact fields** (spot, strike, spread, flow intensity, etc.).
+    - Sentinel rebuilds the full feature vector behind the scenes and runs **all three models**:
+      direction, volatility regime, and short-horizon return.
+
+    This is useful for:
+    - Sanity-checking how stable the models are to small changes.
+    - Running quick “what if” scenarios before trades.
+    - Explaining model behavior to a human (trader / hiring manager).
+    """
+)
+
+
+st.caption(
+    "Use this panel to tweak a real sweep or type in a new one. "
+    "We start from the selected row above and override a few key features."
+)
+
+with st.expander("🔧 Enter sweep details manually"):
+    # Build default values from the current sample row
+    base_row = sample[feature_cols].iloc[0]
+
+    overrides = {}
+    for feat in KEY_MANUAL_FEATURES:
+        if feat in feature_cols:
+            default_val = float(base_row[feat])
+            new_val = st.number_input(
+                label=f"{feat}",
+                value=default_val,
+                step=0.01,
+                format="%.4f",
+                key=f"manual_{feat}",
+            )
+            overrides[feat] = new_val
+
+    st.caption(
+        "We keep all other engineered features from the selected row and "
+        "only override the values you edit here."
+    )
+
+    run_manual = st.button("Run Manual Prediction", type="primary")
+
+if run_manual:
+    # Start from the existing engineered feature vector
+    manual_X = X_sample.copy()  # single-row DataFrame
+
+    # Override the key features with user inputs
+    for feat, val in overrides.items():
+        if feat in manual_X.columns:
+            manual_X.iloc[0, manual_X.columns.get_loc(feat)] = val
+
+    # Re-run predictions with the modified feature vector
+    m_dir_proba_up = models["direction_rf"].predict_proba(manual_X)[0, 1]
+    m_dir_label = "⬆️ Up" if m_dir_proba_up >= 0.5 else "⬇️ Down / Flat"
+
+    m_vol_pred = models["volregime_rf"].predict(manual_X)[0]
+    m_vol_proba = models["volregime_rf"].predict_proba(manual_X)[0, int(m_vol_pred)]
+    m_vol_label = "🌪 High volatility" if m_vol_pred == 1 else "🌤 Normal volatility"
+
+    m_next_ret_pred = models["nextret_rf"].predict(manual_X)[0]
+
+    st.markdown("#### Manual Input Predictions")
+
+    colm1, colm2, colm3 = st.columns(3)
+
+    with colm1:
+        st.metric(
+            label="P(Direction Up) — Manual",
+            value=f"{m_dir_proba_up:.1%}",
+            delta=m_dir_label,
+        )
+
+    with colm2:
+        st.metric(
+            label="Volatility Regime — Manual",
+            value=m_vol_label,
+            delta=f"Confidence {m_vol_proba:.1%}",
+        )
+
+    with colm3:
+        st.metric(
+            label="Predicted Next 1D Return — Manual",
+            value=f"{m_next_ret_pred:.3f}",
+        )
+
+    st.markdown(
+    """
+    **How to read these numbers:**
+
+    - **P(Direction Up)** – probability the next short-horizon move is up rather than down,
+      based on the engineered features from your manual sweep.
+    - **Volatility Regime** – whether this sweep looks like a **normal** or **high-vol** environment
+      compared to the historical dataset.
+    - **Predicted Next 1D Return** – model’s estimate of the **size** of the next-day move
+      (not just direction), in return space.
+
+    Together, these give a quick snapshot of:  
+    *“If I see a sweep like this, what kind of move and volatility profile does Sentinel expect?”*
+    """
+)   
+
 # ---------- Quick interpretation cards (per-row) ----------
 
-st.subheader("2. Quick interpretation for this sweep")
+st.subheader("3. Quick interpretation for this sweep")
 
 top_dir = get_top_features(models["direction_rf"], feature_cols, k=5)
 top_vol = get_top_features(models["volregime_rf"], feature_cols, k=5)
@@ -232,7 +352,7 @@ with c3:
 
 # ---------- Deeper dive: global behavior ----------
 
-st.subheader("3. Deeper dive – how the models behave on the dataset")
+st.subheader("4. Deeper dive – how the models behave on the dataset")
 
 tab_dir, tab_vol, tab_ret = st.tabs(
     ["Direction model", "Volatility regime model", "Return regression"]
@@ -342,7 +462,7 @@ with tab_ret:
 
 # ---------- Notes section ----------
 
-st.subheader("4. What this shell proves")
+st.subheader("5. What this shell proves")
 
 st.markdown(
     """

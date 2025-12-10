@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import joblib
 
-from sentinel_app.app import load_models, load_training_data, get_feature_cols, get_top_features, MODELS_DIR, DATA_PATH
+from sentinel_app.app import load_models, load_training_data, get_feature_cols, get_top_features, KEY_MANUAL_FEATURES, MODELS_DIR, DATA_PATH
 
 
 def test_models_load_and_methods():
@@ -96,3 +96,36 @@ def test_get_top_features_returns_sorted_pairs():
     # Importances are non-negative and sorted descending
     assert all(i >= 0 for i in importances)
     assert list(importances) == sorted(importances, reverse=True)
+
+def test_manual_like_inference_pipeline():
+    """
+    Simulate the manual input panel:
+    - take a single engineered row
+    - override a few key features
+    - confirm all three models still produce valid outputs.
+    """
+    df = load_training_data()
+    feature_cols = get_feature_cols(df)
+    models = load_models()
+
+    # one-row engineered feature vector (avoid chained indexing)
+    row = df.sample(1, random_state=123)
+    base = row[feature_cols].copy()
+
+    # build overrides similar to the Streamlit panel
+    for feat in KEY_MANUAL_FEATURES:
+        if feat in base.columns:
+            original = float(base.iloc[0][feat])
+            new_val = original * 1.05 if original != 0 else 0.01
+            # use .loc to avoid SettingWithCopyWarning
+            base.loc[:, feat] = new_val
+
+    # run all three models
+    dir_proba = models["direction_rf"].predict_proba(base)
+    vol_pred = models["volregime_rf"].predict(base)
+    ret_pred = models["nextret_rf"].predict(base)
+
+    # shape / type sanity checks
+    assert dir_proba.shape == (1, 2)
+    assert set(vol_pred).issubset({0, 1})
+    assert len(ret_pred) == 1
