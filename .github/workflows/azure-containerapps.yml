@@ -5,7 +5,8 @@ on:
     branches: [ main ]
     paths:
       - "sentinel_app/**"
-      - "Dockerfile"
+      - "azure_deploy/**"
+      - "requirements.txt"
       - ".github/workflows/azure-containerapps.yml"
   workflow_dispatch:
 
@@ -36,7 +37,6 @@ jobs:
         run: |
           az extension add -n containerapp --yes
 
-
       - name: Build and push image to ACR
         run: |
           IMAGE_TAG=${{ github.sha }}
@@ -46,10 +46,13 @@ jobs:
 
           az acr login --name $ACR_NAME
 
-          docker build -t "$FULL_IMAGE" .
+          # Use the Dockerfile you already have
+          docker build -f azure_deploy/Dockerfile -t "$FULL_IMAGE" .
+
           docker push "$FULL_IMAGE"
 
           echo "FULL_IMAGE=$FULL_IMAGE" >> $GITHUB_ENV
+
 
       - name: Deploy to Azure Container Apps
         run: |
