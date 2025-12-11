@@ -1,4 +1,5 @@
 # sentinel_app/app.py
+# NOTE: touch for CI rebuild to include parquet data
 
 from pathlib import Path
 

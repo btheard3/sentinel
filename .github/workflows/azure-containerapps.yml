@@ -7,7 +7,7 @@ on:
       - "sentinel_app/**"
       - "azure_deploy/**"
       - "models/**" 
-      - "data/**" 
+      - "data/processed/**"
       - "requirements.txt"
       - ".github/workflows/azure-containerapps.yml"
   workflow_dispatch:
