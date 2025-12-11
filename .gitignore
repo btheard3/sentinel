@@ -8,7 +8,7 @@ __pycache__/
 # Data & models
 data/raw/
 data/processed/
-models/
+#models/
 trade_journal/*.xlsx
 trade_journal/template/*.xlsx
 
