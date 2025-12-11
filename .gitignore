@@ -7,7 +7,7 @@ __pycache__/
 
 # Data & models
 data/raw/
-data/processed/
+#data/processed/
 !data/processed/tradyflow_training.parquet
 #models/
 trade_journal/*.xlsx
