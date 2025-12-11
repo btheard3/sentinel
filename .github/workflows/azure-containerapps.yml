@@ -23,6 +23,8 @@ jobs:
       ACR_NAME: sentinelregistry2025
       ACR_LOGIN_SERVER: sentinelregistry2025.azurecr.io
       IMAGE_NAME: sentinel-baseline
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SENTINEL_ENV: ${{ secrets.SENTINEL_ENV }}
 
     steps:
       - name: Checkout code
@@ -60,4 +62,6 @@ jobs:
             --name $CONTAINERAPP_NAME \
             --resource-group $RESOURCE_GROUP \
             --image "$FULL_IMAGE" \
-            --set-env-vars SENTINEL_ENV=prod
+            --set-env-vars \
+            SENTINEL_ENV=$SENTINEL_ENV \
+            OPENAI_API_KEY=$OPENAI_API_KEY

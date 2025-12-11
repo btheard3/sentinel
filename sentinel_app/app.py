@@ -11,11 +11,30 @@ from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
 )
+from dotenv import load_dotenv
+load_dotenv()  # loads variables from .env into environment
+
 
 import os
 ...
 ENV = os.environ.get("SENTINEL_ENV", "dev")
 st.sidebar.caption(f"Environment: `{ENV}`")
+
+try:
+    # New OpenAI SDK
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+SENTINEL_ENV = os.getenv("SENTINEL_ENV", "dev")
+
+if OPENAI_API_KEY is None:
+    st.warning(
+        "OPENAI_API_KEY is not set. AI explanations will be disabled.",
+        icon="⚠️",
+    )
+
 
 # Key features we want to expose for manual input (only used if present in df)
 KEY_MANUAL_FEATURES = [
@@ -120,6 +139,65 @@ def get_top_features(model, feature_cols, k: int = 5):
     )[:k]
     return pairs
 
+def generate_manual_ai_summary(
+    manual_inputs: dict,
+    dir_proba_up: float,
+    vol_label: str,
+    vol_proba: float,
+    next_ret_pred: float,
+) -> str:
+    """
+    Use OpenAI to explain what the manual sweep predictions mean
+    in plain English for a trader.
+    Falls back gracefully if OPENAI_API_KEY or the SDK are missing.
+    """
+    if OpenAI is None or not os.getenv("OPENAI_API_KEY"):
+        return (
+            "AI interpretation is disabled (missing OpenAI dependency or OPENAI_API_KEY). "
+            "You can still use the raw model predictions above."
+        )
+
+    client = OpenAI()  # reads OPENAI_API_KEY from env
+
+    # Keep prompt compact but useful
+    prompt = f"""
+You are an options quant explaining model output to a trader.
+
+Manual sweep inputs (user-edited):
+{manual_inputs}
+
+Model predictions on this manual sweep:
+- P(next move up) = {dir_proba_up:.3f}
+- Volatility regime = {vol_label} (model confidence {vol_proba:.3f})
+- Predicted next 1-day return = {next_ret_pred:.4f}
+
+Write a short, concrete interpretation:
+
+1. What the model is expecting (direction + size of move).
+2. How volatility regime influences risk.
+3. One or two practical takeaways (e.g., "move looks crowded", "edge is thin", etc.).
+
+Use 3–5 bullet points. Avoid hype, be clear and realistic.
+"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a calm, realistic options strategist. "
+                               "Explain predictions clearly, no jargon overload.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=260,
+            temperature=0.3,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as exc:
+        return f"AI interpretation failed: {exc}"
+
 
 # ---------- Load everything ----------
 
@@ -156,7 +234,7 @@ with st.sidebar:
 
 # ---------- Show input features ----------
 
-st.subheader("1. Input Features (Engineered Row)")
+st.subheader("Input Features (Engineered Row)")
 st.dataframe(sample[feature_cols], use_container_width=True)
 
 # ---------- Run predictions ----------
@@ -199,116 +277,124 @@ with col3:
 
 # ---------- Manual Sweep Input (Advanced) ----------
 
-st.subheader("2. Manual Sweep Input (Advanced)")
+st.subheader("Manual Sweep Input (Advanced)")
 
-st.markdown(
-    """
-    Use this panel to **type in a custom options sweep**.
+with st.expander("What this panel does", expanded=False):
+    st.markdown(
+        """
+**Purpose**
 
-    - We start from the currently selected training row.
-    - You can override a few **high-impact fields** (spot, strike, spread, flow intensity, etc.).
-    - Sentinel rebuilds the full feature vector behind the scenes and runs **all three models**:
-      direction, volatility regime, and short-horizon return.
+- Start from a real engineered sweep row selected in section 1.
+- Manually tweak a few key fields (spot, strike, spread, flow, etc.).
+- Re-run the **same trained models** on this edited row.
 
-    This is useful for:
-    - Sanity-checking how stable the models are to small changes.
-    - Running quick “what if” scenarios before trades.
-    - Explaining model behavior to a human (trader / hiring manager).
-    """
-)
+**What you get back**
 
+- Updated **probability the next move is up**.
+- Updated **volatility regime** (normal vs high vol).
+- Updated **next-day return estimate**.
 
-st.caption(
-    "Use this panel to tweak a real sweep or type in a new one. "
-    "We start from the selected row above and override a few key features."
-)
+**Why this matters**
 
-with st.expander("🔧 Enter sweep details manually"):
-    # Build default values from the current sample row
-    base_row = sample[feature_cols].iloc[0]
-
-    overrides = {}
-    for feat in KEY_MANUAL_FEATURES:
-        if feat in feature_cols:
-            default_val = float(base_row[feat])
-            new_val = st.number_input(
-                label=f"{feat}",
-                value=default_val,
-                step=0.01,
-                format="%.4f",
-                key=f"manual_{feat}",
-            )
-            overrides[feat] = new_val
-
-    st.caption(
-        "We keep all other engineered features from the selected row and "
-        "only override the values you edit here."
+- Lets you do *what-if* analysis: “What if the spread widens?” “What if flow spikes?”
+- Shows how **sensitive** the models are to price/flow changes.
+- Helps you stress-test Sentinel before wiring it into a live options scanner.
+"""
     )
 
-    run_manual = st.button("Run Manual Prediction", type="primary")
+# Use the currently selected sample row as a base
+base_row = sample[feature_cols].copy()
+
+st.markdown("#### Enter sweep details manually")
+
+# For now we expose a small set of important knobs.
+# You can extend this list later.
+editable_features = ["Spot", "Strike", "spread_pct", "flow_intensity"]
+manual_inputs = {}
+
+cols = st.columns(len(editable_features))
+
+for col, feat in zip(cols, editable_features):
+    with col:
+        if feat not in base_row.columns:
+            # In case naming drifts, keep it robust
+            st.write(f"⚠️ Missing feature: `{feat}`")
+            manual_inputs[feat] = None
+            continue
+
+        original_val = float(base_row.iloc[0][feat])
+
+        manual_val = st.number_input(
+            feat,
+            value=original_val,
+            step=abs(original_val) * 0.01 if original_val != 0 else 0.01,
+            format="%.6f",
+        )
+        manual_inputs[feat] = manual_val
+        base_row.iloc[0][feat] = manual_val
+
+run_manual = st.button("Run Manual Prediction", type="primary")
+
+st.markdown("---")
+st.markdown("### Manual Input Predictions")
 
 if run_manual:
-    # Start from the existing engineered feature vector
-    manual_X = X_sample.copy()  # single-row DataFrame
+    X_manual = base_row[feature_cols]
 
-    # Override the key features with user inputs
-    for feat, val in overrides.items():
-        if feat in manual_X.columns:
-            manual_X.iloc[0, manual_X.columns.get_loc(feat)] = val
+    # Direction: probability next move is up
+    manual_dir_proba_up = models["direction_rf"].predict_proba(X_manual)[0, 1]
+    manual_dir_label = "⬆️ Up" if manual_dir_proba_up >= 0.5 else "⬇️ Down / Flat"
 
-    # Re-run predictions with the modified feature vector
-    m_dir_proba_up = models["direction_rf"].predict_proba(manual_X)[0, 1]
-    m_dir_label = "⬆️ Up" if m_dir_proba_up >= 0.5 else "⬇️ Down / Flat"
+    # Vol regime
+    manual_vol_pred = models["volregime_rf"].predict(X_manual)[0]
+    manual_vol_proba = models["volregime_rf"].predict_proba(X_manual)[0, int(manual_vol_pred)]
+    manual_vol_label = "🌪 High volatility" if manual_vol_pred == 1 else "🌤 Normal volatility"
 
-    m_vol_pred = models["volregime_rf"].predict(manual_X)[0]
-    m_vol_proba = models["volregime_rf"].predict_proba(manual_X)[0, int(m_vol_pred)]
-    m_vol_label = "🌪 High volatility" if m_vol_pred == 1 else "🌤 Normal volatility"
+    # Next 1D return
+    manual_next_ret_pred = float(models["nextret_rf"].predict(X_manual)[0])
 
-    m_next_ret_pred = models["nextret_rf"].predict(manual_X)[0]
+    c1, c2, c3 = st.columns(3)
 
-    st.markdown("#### Manual Input Predictions")
-
-    colm1, colm2, colm3 = st.columns(3)
-
-    with colm1:
+    with c1:
         st.metric(
             label="P(Direction Up) — Manual",
-            value=f"{m_dir_proba_up:.1%}",
-            delta=m_dir_label,
+            value=f"{manual_dir_proba_up:.1%}",
+            delta=manual_dir_label,
         )
 
-    with colm2:
+    with c2:
         st.metric(
             label="Volatility Regime — Manual",
-            value=m_vol_label,
-            delta=f"Confidence {m_vol_proba:.1%}",
+            value=manual_vol_label,
+            delta=f"Confidence {manual_vol_proba:.1%}",
         )
 
-    with colm3:
+    with c3:
         st.metric(
             label="Predicted Next 1D Return — Manual",
-            value=f"{m_next_ret_pred:.3f}",
+            value=f"{manual_next_ret_pred:.3f}",
         )
 
-    st.markdown(
-    """
-    **How to read these numbers:**
+    # ---------- 4. AI interpretation for this manual sweep ----------
 
-    - **P(Direction Up)** – probability the next short-horizon move is up rather than down,
-      based on the engineered features from your manual sweep.
-    - **Volatility Regime** – whether this sweep looks like a **normal** or **high-vol** environment
-      compared to the historical dataset.
-    - **Predicted Next 1D Return** – model’s estimate of the **size** of the next-day move
-      (not just direction), in return space.
+    st.markdown("#### AI interpretation of this manual sweep")
 
-    Together, these give a quick snapshot of:  
-    *“If I see a sweep like this, what kind of move and volatility profile does Sentinel expect?”*
-    """
-)   
+    ai_text = generate_manual_ai_summary(
+        manual_inputs=manual_inputs,
+        dir_proba_up=manual_dir_proba_up,
+        vol_label=manual_vol_label,
+        vol_proba=manual_vol_proba,
+        next_ret_pred=manual_next_ret_pred,
+    )
+
+    st.write(ai_text)
+else:
+    st.info("Adjust the fields above and click **Run Manual Prediction** to see model output and AI interpretation.")
+   
 
 # ---------- Quick interpretation cards (per-row) ----------
 
-st.subheader("3. Quick interpretation for this sweep")
+st.subheader("Quick interpretation for this sweep")
 
 top_dir = get_top_features(models["direction_rf"], feature_cols, k=5)
 top_vol = get_top_features(models["volregime_rf"], feature_cols, k=5)
@@ -352,7 +438,7 @@ with c3:
 
 # ---------- Deeper dive: global behavior ----------
 
-st.subheader("4. Deeper dive – how the models behave on the dataset")
+st.subheader("Deeper dive – how the models behave on the dataset")
 
 tab_dir, tab_vol, tab_ret = st.tabs(
     ["Direction model", "Volatility regime model", "Return regression"]
@@ -462,7 +548,7 @@ with tab_ret:
 
 # ---------- Notes section ----------
 
-st.subheader("5. What this shell proves")
+st.subheader("What this shell proves")
 
 st.markdown(
     """

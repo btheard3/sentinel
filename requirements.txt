@@ -13,3 +13,4 @@ openpyxl
 python-dotenv
 requests
 streamlit 
+openai>=1.6.0
