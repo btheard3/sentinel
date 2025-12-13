@@ -248,7 +248,7 @@ if VIEW_MODE == "User view":
     # Sidebar: pick a sample sweep
     with st.sidebar:
         st.header("Sample Sweep Selector")
-        st.caption("Pick a real row from training data.")
+        st.caption("Select a historical options sweep to analyze.")
 
         max_idx = len(df) - 1
         idx = st.number_input(
@@ -272,7 +272,7 @@ if VIEW_MODE == "User view":
     vol_label = "🌪 High volatility" if vol_pred == 1 else "🌤 Normal volatility"
 
     next_ret_pred = models["nextret_rf"].predict(X_sample)[0]
-    
+
     # --- KPI metrics ---
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -410,30 +410,35 @@ if VIEW_MODE == "User view":
 
     # ---------- What drove this prediction ----------
     st.subheader("What Drove This Prediction")
+    st.caption(
+    "These charts show which features the models rely on most overall — "
+    "not a breakdown of this single sweep."
+)
 
-    top_dir = get_top_features(models["direction_rf"], feature_cols, k=5)
-    top_vol = get_top_features(models["volregime_rf"], feature_cols, k=5)
-    top_ret = get_top_features(models["nextret_rf"], feature_cols, k=5)
+    with st.expander("Why the model thinks this (optional)", expanded=False):
+        top_dir = get_top_features(models["direction_rf"], feature_cols, k=5)
+        top_vol = get_top_features(models["volregime_rf"], feature_cols, k=5)
+        top_ret = get_top_features(models["nextret_rf"], feature_cols, k=5)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown("**Direction – key signals**")
-        if top_dir:
-            st.bar_chart(pd.DataFrame(top_dir, columns=["feature", "importance"]).set_index("feature"))
-        else:
-            st.caption("No feature importances available.")
-    with c2:
-        st.markdown("**Vol regime – key signals**")
-        if top_vol:
-            st.bar_chart(pd.DataFrame(top_vol, columns=["feature", "importance"]).set_index("feature"))
-        else:
-            st.caption("No feature importances available.")
-    with c3:
-        st.markdown("**Return – key signals**")
-        if top_ret:
-            st.bar_chart(pd.DataFrame(top_ret, columns=["feature", "importance"]).set_index("feature"))
-        else:
-            st.caption("No feature importances available.")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**Direction – key signals**")
+            if top_dir:
+                st.bar_chart(pd.DataFrame(top_dir, columns=["feature", "importance"]).set_index("feature"))
+            else:
+                st.caption("No feature importances available.")
+        with c2:
+            st.markdown("**Vol regime – key signals**")
+            if top_vol:
+                st.bar_chart(pd.DataFrame(top_vol, columns=["feature", "importance"]).set_index("feature"))
+            else:
+                st.caption("No feature importances available.")
+        with c3:
+            st.markdown("**Return – key signals**")
+            if top_ret:
+                st.bar_chart(pd.DataFrame(top_ret, columns=["feature", "importance"]).set_index("feature"))
+            else:
+                st.caption("No feature importances available.")
 
 
 # ============================
