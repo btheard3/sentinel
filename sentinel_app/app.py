@@ -69,6 +69,19 @@ h1, h2, h3 { margin-bottom: 0.5rem; }
 
 # ---------- Title ----------
 st.title("🔮 Sentinel – Baseline Modeling Panel")
+st.info(
+    """
+**How to read Sentinel (60 seconds)**
+
+- Sentinel is a **sweep interpreter**, not a trading bot.
+- It scores a sweep on **direction**, **volatility regime**, and **expected next-day move**.
+- Use it to **rank** sweeps and understand risk context — not to predict exact prices.
+- Start with a **Historical Options Sweep** (left). Then optionally run a **What-If Scenario**.
+- The **AI interpretation** summarizes what the model is implying in plain English.
+""",
+    icon="🧭",
+)
+
 st.markdown(
     """
 **What this is:** a research-grade “sweep interpreter.”  
@@ -222,7 +235,6 @@ models = load_models()
 # USER VIEW
 # ============================
 if VIEW_MODE == "User view":
-    st.success("✅ Models loaded from `models/`")
 
     # Load df only here (needed for sample selector)
     df = load_training_data()
@@ -260,21 +272,59 @@ if VIEW_MODE == "User view":
     vol_label = "🌪 High volatility" if vol_pred == 1 else "🌤 Normal volatility"
 
     next_ret_pred = models["nextret_rf"].predict(X_sample)[0]
-
+    
+    # --- KPI metrics ---
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("P(Direction Up)", f"{dir_proba_up:.1%}", dir_label)
+        st.metric(
+        "Directional Bias (Probability)",
+        f"{dir_proba_up:.1%}",
+        "Bullish" if dir_proba_up >= 0.55 else ("Bearish/Neutral" if dir_proba_up <= 0.45 else "Mixed"),
+    )
     with col2:
-        st.metric("Volatility Regime", vol_label, f"Confidence {vol_proba:.1%}")
+        st.metric(
+        "Volatility Context",
+        vol_label,
+        f"Model confidence {vol_proba:.1%}",
+    )
     with col3:
-        st.metric("Predicted Next 1D Return", f"{next_ret_pred:.3f}")
+        st.metric(
+        "Expected Next-Day Move (Return)",
+        f"{next_ret_pred:.3f}",
+        "Higher = bigger expected move",
+    )
+        
+    st.markdown("### What these numbers usually mean")
+
+    a, b, c = st.columns(3)
+    with a:
+        st.caption("**Directional Bias**")
+        st.write(
+        "- ~50% = no edge\n"
+        "- 55%+ = mild bullish tilt\n"
+        "- 60%+ = strong signal (still not a guarantee)"
+        )
+    with b:
+        st.caption("**Volatility Context**")
+        st.write(
+        "- Normal = calmer tape\n"
+        "- High vol = wider swings, harder risk control\n"
+        "- High vol + weak bias = be cautious"
+        )
+    with c:
+        st.caption("**Expected Move**")
+        st.write(
+        "- Near 0 = noise / tiny move\n"
+        "- Bigger magnitude = bigger expected swing\n"
+        "- Use for ranking, not precision"
+    )
 
     # Hide the huge engineered feature row by default
     with st.expander("Selected Sweep (engineered features)", expanded=False):
         st.dataframe(sample[feature_cols], use_container_width=True, height=220)
 
     # ---------- Manual Sweep Input ----------
-    st.subheader("Manual Sweep Input")
+    st.subheader("What-If Scenario Analysis")
 
     with st.expander("What this panel does", expanded=False):
         st.markdown(
@@ -328,11 +378,23 @@ if VIEW_MODE == "User view":
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric("P(Direction Up) — Manual", f"{manual_dir_proba_up:.1%}", manual_dir_label)
+            st.metric(
+        "Directional Bias (Probability) — What-If",
+        f"{manual_dir_proba_up:.1%}",
+        "Bullish" if manual_dir_proba_up >= 0.55 else ("Bearish/Neutral" if manual_dir_proba_up <= 0.45 else "Mixed"),
+    )
         with c2:
-            st.metric("Volatility Regime — Manual", manual_vol_label, f"Confidence {manual_vol_proba:.1%}")
+            st.metric(
+        "Volatility Context — What-If",
+        manual_vol_label,
+        f"Model confidence {manual_vol_proba:.1%}",
+    )
         with c3:
-            st.metric("Predicted Next 1D Return — Manual", f"{manual_next_ret_pred:.3f}")
+            st.metric(
+        "Expected Next-Day Move — What-If",
+        f"{manual_next_ret_pred:.3f}",
+        "Higher = bigger expected move",
+    )
 
         st.markdown("#### AI interpretation of this manual sweep")
         ai_text = generate_manual_ai_summary(
