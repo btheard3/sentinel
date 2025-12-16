@@ -1,77 +1,51 @@
-# Sentinel – Premarket Forecasting & Trade Journal
+# Sentinel Forecaster — Options Sweep Interpreter
 
-**Sentinel** is an AI-powered premarket engine that:
-- Scans premarket movers
-- Engineers predictive features from options flow and price action
-- Uses ML models trained on the TradyFlow options dataset
-- Generates continuation / fade signals before the bell
-- Logs every idea into an **Excel trade journal**
-- Serves a live dashboard (Streamlit) deployed on **Azure**
+**Live App:** <https://sentinel-baseline-panel.victorioussand-a57f0952.centralus.azurecontainerapps.io/>
 
-## High-Level Architecture
+## What Sentinel is
+Sentinel is a **sweep interpreter**: it scores an options sweep on (1) directional bias, (2) volatility regime context, and (3) expected next-day move.
 
-1. **Offline training**
-   - Load TradyFlow options dataset (Kaggle)
-   - Engineer features (gap %, volume surge, flow pressure, etc.)
-   - Train gradient-boosted models (XGBoost / LightGBM)
-   - Save models to `models/`
+## What Sentinel is not
+It is **not** a trading bot and does **not** predict exact prices. It’s designed to **rank and contextualize** sweeps.
 
-2. **Live premarket pipeline**
-   - Pull live data from Polygon
-   - Build the same feature set
-   - Run inference and produce signals
-   - Write trades + signals to the Excel journal
+## Data
+Sentinel uses a historical engineered sweep dataset:
+- File: `data/processed/tradyflow_training.parquet`
+- Each row = one historical “sweep” with engineered flow/price features and next-day labels.
 
-3. **Dashboard**
-   - Streamlit app in `dashboards/streamlit_app`
-   - Shows today’s signals, recent performance, and journal stats
-   - Deployed via Docker → Azure App Service
+## Models (Baseline v1)
+Sentinel trains and serves three baseline models:
+1) **Direction model** → `P(Direction Up)`
+2) **Volatility regime model** → `Normal vs High Vol`
+3) **Return regression head** → predicted `next_return_1d`
 
-4. **Azure**
-   - App Service for dashboard
-   - ACR for Docker images
-   - Azure Functions for scheduled premarket runs
-   - Blob Storage for journal archives and logs
+Artifacts live in `models/` and are loaded by the Streamlit app.
 
-## Repo Layout
+## How to read the outputs
+- **Directional Bias (Probability):** near 50% = weak/no edge, 55%+ = mild tilt, 60%+ = stronger signal (still not guaranteed)
+- **Volatility Context:** high vol = wider swings and harder risk control
+- **Expected Next-Day Move:** used for ranking sweeps by expected movement size
 
-```text
-sentinel/
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── data/
-│   ├── raw/          # Original TradyFlow CSVs, Polygon pulls
-│   ├── processed/    # Feature tables for modeling
-│   └── external/     # Lookups, metadata, etc.
-├── notebooks/
-│   ├── 00_sentinel_overview.ipynb
-│   ├── 01_tradyflow_eda.ipynb
-│   ├── 02_feature_engineering.ipynb
-│   ├── 03_model_training.ipynb
-│   ├── 04_live_inference_pipeline.ipynb
-│   └── 05_dashboard_and_results.ipynb
-├── src/
-│   ├── config.py
-│   ├── data/
-│   │   ├── load_tradyflow.py
-│   │   └── polygon_live.py
-│   ├── features/
-│   │   └── feature_builder.py
-│   ├── models/
-│   │   ├── train.py
-│   │   └── infer.py
-│   ├── journal/
-│   │   └── excel_writer.py
-│   └── utils/
-│       └── logging_utils.py
-├── dashboards/
-│   └── streamlit_app/
-│       └── app.py
-├── trade_journal/
-│   └── template/
-│       └── sentinel_trade_journal_template.xlsx  # Excel template (to be created)
-└── azure_deploy/
-    ├── Dockerfile
-    └── azure_notes.md
+## Run locally
+```bash
+pip install -r requirements.txt
+streamlit run sentinel_app/app.py
+```
 
+## Run with Docker
+```bash
+docker build -t sentinel .
+docker run -p 8501:8501 sentinel
+```
+
+## Deployment
+
+This app is deployed on Azure Container Apps via GitHub Actions CI/CD.
+
+## Limitations
+
+Short-horizon returns are noisy; predictions are probabilistic, not certain.
+
+Trained on historical engineered features; performance depends on dataset coverage.
+
+Live sweep ingestion is not wired in this baseline release.
