@@ -1,36 +1,44 @@
 # Sentinel Forecaster — Options Sweep Interpreter
 
-**Live App:** <https://sentinel-baseline-panel.victorioussand-a57f0952.centralus.azurecontainerapps.io/>
+**Live App:** https://sentinel-baseline-panel.victorioussand-a57f0952.centralus.azurecontainerapps.io/
 
 ## What Sentinel is
-Sentinel is a **sweep interpreter**: it scores an options sweep on (1) directional bias, (2) volatility regime context, and (3) expected next-day move.
+Sentinel is an **options sweep interpreter**: it scores a historical sweep on:
+1) **Directional Bias** (probability the next move is up)  
+2) **Volatility Context** (normal vs high-vol regime)  
+3) **Expected Next-Day Move** (rough magnitude estimate)
 
 ## What Sentinel is not
 It is **not** a trading bot and does **not** predict exact prices. It’s designed to **rank and contextualize** sweeps.
 
-## What is an Options Sweep?
+## Quickstart (60 seconds)
+1) Open the app and select a **Historical Options Sweep** (left sidebar)  
+2) Read the 3 KPIs at the top  
+3) Optionally run **What-If** to test sensitivity (spread/flow changes)  
+4) Use the **AI interpretation** as the plain-English takeaway (if enabled)
 
-An **options sweep** is a large, aggressive options trade that executes across multiple exchanges in rapid succession, typically at the ask (for calls) or bid (for puts).
+## What is an Options Sweep?
+An **options sweep** is a single order that gets executed across **multiple venues** in rapid succession, usually to get filled quickly at the best available prices.
 
 In practice, sweeps are often interpreted as:
-- **Urgent positioning** by institutional or informed traders
-- **Directional intent** rather than passive hedging
-- A signal that someone is willing to pay up for exposure
+- **Aggressive positioning** (someone wants in *now*)
+- **Directional intent** more than passive hedging
+- Potential “information events” — but not always “smart money”
 
 Each row in Sentinel’s dataset represents **one historical sweep**, enriched with:
 - Price context (spot, strike, spreads)
-- Flow intensity (volume, open interest dynamics)
-- Volatility-aware features
+- Flow intensity (volume / open interest dynamics)
+- Volatility-aware engineered features
 - Forward-looking labels (next-day direction, regime, return)
 
-Sentinel does **not** assume sweeps are always “smart money.”
+Sentinel does **not** assume sweeps are always predictive.  
 Instead, it evaluates:
-> *When sweeps historically mattered — and when they didn’t.*
+> When sweeps historically mattered — and when they didn’t.
 
 ## Data
 Sentinel uses a historical engineered sweep dataset:
 - File: `data/processed/tradyflow_training.parquet`
-- Each row = one historical “sweep” with engineered flow/price features and next-day labels.
+- Each row = one historical “sweep” with engineered flow/price features and next-day labels
 
 ## Models (Baseline v1)
 Sentinel trains and serves three baseline models:
@@ -41,9 +49,9 @@ Sentinel trains and serves three baseline models:
 Artifacts live in `models/` and are loaded by the Streamlit app.
 
 ## How to read the outputs
-- **Directional Bias (Probability):** near 50% = weak/no edge, 55%+ = mild tilt, 60%+ = stronger signal (still not guaranteed)
+- **Directional Bias (Probability):** ~50% = weak/no edge, 55%+ = mild tilt, 60%+ = stronger signal (still not guaranteed)
 - **Volatility Context:** high vol = wider swings and harder risk control
-- **Expected Next-Day Move:** used for ranking sweeps by expected movement size
+- **Expected Next-Day Move:** use for **ranking** expected movement size (not precision)
 
 ## Run locally
 ```bash
@@ -63,8 +71,8 @@ This app is deployed on Azure Container Apps via GitHub Actions CI/CD.
 
 ## Limitations
 
-Short-horizon returns are noisy; predictions are probabilistic, not certain.
+- Short-horizon returns are noisy; predictions are probabilistic, not certain
 
-Trained on historical engineered features; performance depends on dataset coverage.
+- Performance depends on dataset coverage and feature stability
 
-Live sweep ingestion is not wired in this baseline release.
+- Live sweep ingestion is not wired in this baseline release
