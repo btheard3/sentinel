@@ -71,7 +71,7 @@ h1, h2, h3 { margin-bottom: 0.5rem; }
 st.title("🔮 Sentinel – Baseline Modeling Panel")
 st.info(
     """
-**How to read Sentinel (60 seconds)**
+**How to read Sentinel**
 
 - Sentinel is a **sweep interpreter**, not a trading bot.
 - It scores a sweep on **direction**, **volatility regime**, and **expected next-day move**.
@@ -80,22 +80,6 @@ st.info(
 - The **AI interpretation** summarizes what the model is implying in plain English.
 """,
     icon="🧭",
-)
-
-st.markdown(
-    """
-**What this is:** a research-grade “sweep interpreter.”  
-Pick a real sweep row (or tweak one manually) and Sentinel returns:
-
-- **P(Direction Up):** probability the next move is up  
-- **Volatility Regime:** normal vs high-vol market conditions  
-- **Expected 1D Return:** rough size/direction estimate for the next day  
-
-**How to use it (simple):**
-1) Pick a sweep row (left sidebar)  
-2) Optionally tweak Spot/Strike/Spread/Flow  
-3) Read the AI interpretation as the plain-English summary
-"""
 )
 
 # ---------- Sidebar: mode + env ----------
