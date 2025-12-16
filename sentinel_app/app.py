@@ -73,14 +73,15 @@ st.info(
     """
 **How to read Sentinel**
 
-- Sentinel is a **sweep interpreter**, not a trading bot.
-- It scores a sweep on **direction**, **volatility regime**, and **expected next-day move**.
-- Use it to **rank** sweeps and understand risk context — not to predict exact prices.
-- Start with a **Historical Options Sweep** (left). Then optionally run a **What-If Scenario**.
-- The **AI interpretation** summarizes what the model is implying in plain English.
+- Sentinel is an **options sweep interpreter** — it explains signals, it doesn’t place trades.
+- Every sweep gets 3 outputs: **Directional Bias**, **Volatility Context**, and **Expected Next-Day Move**.
+- Use it to **rank and compare** sweeps (stronger vs weaker), not to predict exact prices.
+- Start with a **Historical Options Sweep** (left). Use **What-If** to test sensitivity (spread/flow changes).
+- The **AI interpretation** converts the numbers into a plain-English trading takeaway.
 """,
     icon="🧭",
 )
+
 
 # ---------- Sidebar: mode + env ----------
 with st.sidebar:
@@ -115,7 +116,6 @@ def load_models():
 @st.cache_data
 def load_training_data():
     """Load the modeling dataset with features + targets."""
-    # NOTE: this path must exist inside the container too
     return pd.read_parquet(DATA_PATH)
 
 
@@ -213,16 +213,26 @@ Use 3–5 bullet points. Avoid hype. Be realistic.
 
 
 # ---------- Load models (fast) ----------
-models = load_models()
+with st.spinner("Loading models..."):
+    models = load_models()
 
 # ============================
 # USER VIEW
 # ============================
 if VIEW_MODE == "User view":
-
     # Load df only here (needed for sample selector)
-    df = load_training_data()
-    feature_cols = get_feature_cols(df)
+    if not DATA_PATH.exists():
+        st.error(
+            f"Training data not found at: {DATA_PATH}\n\n"
+            "Fix by ensuring the parquet is included in your Docker build context "
+            "(or copied into the container).",
+            icon="🧨",
+        )
+        st.stop()
+
+    with st.spinner("Loading training dataset..."):
+        df = load_training_data()
+        feature_cols = get_feature_cols(df)
 
     st.write(
         f"Training dataset loaded with **{len(df)}** rows and "
@@ -231,10 +241,10 @@ if VIEW_MODE == "User view":
 
     # Sidebar: pick a sample sweep
     with st.sidebar:
-        st.header("Sample Sweep Selector")
+        st.header("Historical Options Sweep")
         st.caption("Select a historical options sweep to analyze.")
 
-        max_idx = len(df) - 1
+        max_idx = max(len(df) - 1, 0)
         idx = st.number_input(
             "Row index",
             min_value=0,
@@ -249,61 +259,65 @@ if VIEW_MODE == "User view":
     X_sample = sample[feature_cols]
 
     dir_proba_up = models["direction_rf"].predict_proba(X_sample)[0, 1]
-    dir_label = "⬆️ Up" if dir_proba_up >= 0.5 else "⬇️ Down / Flat"
-
     vol_pred = models["volregime_rf"].predict(X_sample)[0]
     vol_proba = models["volregime_rf"].predict_proba(X_sample)[0, int(vol_pred)]
-    vol_label = "🌪 High volatility" if vol_pred == 1 else "🌤 Normal volatility"
+    next_ret_pred = float(models["nextret_rf"].predict(X_sample)[0])
 
-    next_ret_pred = models["nextret_rf"].predict(X_sample)[0]
+    vol_label = "🌪 High volatility" if vol_pred == 1 else "🌤 Normal volatility"
 
     # --- KPI metrics ---
     col1, col2, col3 = st.columns(3)
+
     with col1:
         st.metric(
-        "Directional Bias (Probability)",
-        f"{dir_proba_up:.1%}",
-        "Bullish" if dir_proba_up >= 0.55 else ("Bearish/Neutral" if dir_proba_up <= 0.45 else "Mixed"),
-    )
+            "Directional Bias (Probability)",
+            f"{dir_proba_up:.1%}",
+            "Bullish" if dir_proba_up >= 0.55 else ("Bearish/Neutral" if dir_proba_up <= 0.45 else "Mixed"),
+        )
+
     with col2:
         st.metric(
-        "Volatility Context",
-        vol_label,
-        f"Model confidence {vol_proba:.1%}",
-    )
+            "Volatility Context",
+            vol_label,
+            f"Model confidence {vol_proba:.1%}",
+        )
+
     with col3:
         st.metric(
-        "Expected Next-Day Move (Return)",
-        f"{next_ret_pred:.3f}",
-        "Higher = bigger expected move",
-    )
-        
-    st.markdown("### What these numbers usually mean")
+            "Expected Next-Day Move (Return)",
+            f"{next_ret_pred:.3f}  (~{next_ret_pred*100:.2f}%)",
+            "Higher magnitude = bigger expected move",
+        )
 
+    # --- Interpretation cards (static) ---
+    st.markdown("### What these numbers usually mean")
     a, b, c = st.columns(3)
+
     with a:
         st.caption("**Directional Bias**")
         st.write(
-        "- ~50% = no edge\n"
-        "- 55%+ = mild bullish tilt\n"
-        "- 60%+ = strong signal (still not a guarantee)"
+            "- ~50% = no edge\n"
+            "- 55%+ = mild bullish tilt\n"
+            "- 60%+ = stronger signal (still not a guarantee)"
         )
+
     with b:
         st.caption("**Volatility Context**")
         st.write(
-        "- Normal = calmer tape\n"
-        "- High vol = wider swings, harder risk control\n"
-        "- High vol + weak bias = be cautious"
+            "- Normal = calmer tape\n"
+            "- High vol = wider swings, harder risk control\n"
+            "- High vol + weak bias = be cautious"
         )
+
     with c:
         st.caption("**Expected Move**")
         st.write(
-        "- Near 0 = noise / tiny move\n"
-        "- Bigger magnitude = bigger expected swing\n"
-        "- Use for ranking, not precision"
-    )
+            "- Near 0 = noise / tiny move\n"
+            "- Bigger magnitude = bigger expected swing\n"
+            "- Use for ranking, not precision"
+        )
 
-    # Hide the huge engineered feature row by default
+    # Hide engineered features by default
     with st.expander("Selected Sweep (engineered features)", expanded=False):
         st.dataframe(sample[feature_cols], use_container_width=True, height=220)
 
@@ -352,33 +366,31 @@ if VIEW_MODE == "User view":
         X_manual = base_row[feature_cols]
 
         manual_dir_proba_up = models["direction_rf"].predict_proba(X_manual)[0, 1]
-        manual_dir_label = "⬆️ Up" if manual_dir_proba_up >= 0.5 else "⬇️ Down / Flat"
-
         manual_vol_pred = models["volregime_rf"].predict(X_manual)[0]
         manual_vol_proba = models["volregime_rf"].predict_proba(X_manual)[0, int(manual_vol_pred)]
-        manual_vol_label = "🌪 High volatility" if manual_vol_pred == 1 else "🌤 Normal volatility"
-
         manual_next_ret_pred = float(models["nextret_rf"].predict(X_manual)[0])
+
+        manual_vol_label = "🌪 High volatility" if manual_vol_pred == 1 else "🌤 Normal volatility"
 
         c1, c2, c3 = st.columns(3)
         with c1:
             st.metric(
-        "Directional Bias (Probability) — What-If",
-        f"{manual_dir_proba_up:.1%}",
-        "Bullish" if manual_dir_proba_up >= 0.55 else ("Bearish/Neutral" if manual_dir_proba_up <= 0.45 else "Mixed"),
-    )
+                "Directional Bias (Probability) — What-If",
+                f"{manual_dir_proba_up:.1%}",
+                "Bullish" if manual_dir_proba_up >= 0.55 else ("Bearish/Neutral" if manual_dir_proba_up <= 0.45 else "Mixed"),
+            )
         with c2:
             st.metric(
-        "Volatility Context — What-If",
-        manual_vol_label,
-        f"Model confidence {manual_vol_proba:.1%}",
-    )
+                "Volatility Context — What-If",
+                manual_vol_label,
+                f"Model confidence {manual_vol_proba:.1%}",
+            )
         with c3:
             st.metric(
-        "Expected Next-Day Move — What-If",
-        f"{manual_next_ret_pred:.3f}",
-        "Higher = bigger expected move",
-    )
+                "Expected Next-Day Move — What-If",
+                f"{manual_next_ret_pred:.3f}  (~{manual_next_ret_pred*100:.2f}%)",
+                "Higher magnitude = bigger expected move",
+            )
 
         st.markdown("#### AI interpretation of this manual sweep")
         ai_text = generate_manual_ai_summary(
@@ -395,29 +407,29 @@ if VIEW_MODE == "User view":
     # ---------- What drove this prediction ----------
     st.subheader("What Drove This Prediction")
     st.caption(
-    "These charts show which features the models rely on most overall — "
-    "not a breakdown of this single sweep."
-)
+        "These charts show which features the models rely on most overall — "
+        "not a breakdown of this single sweep."
+    )
 
     with st.expander("Why the model thinks this (optional)", expanded=False):
         top_dir = get_top_features(models["direction_rf"], feature_cols, k=5)
         top_vol = get_top_features(models["volregime_rf"], feature_cols, k=5)
         top_ret = get_top_features(models["nextret_rf"], feature_cols, k=5)
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
+        d1, d2, d3 = st.columns(3)
+        with d1:
             st.markdown("**Direction – key signals**")
             if top_dir:
                 st.bar_chart(pd.DataFrame(top_dir, columns=["feature", "importance"]).set_index("feature"))
             else:
                 st.caption("No feature importances available.")
-        with c2:
+        with d2:
             st.markdown("**Vol regime – key signals**")
             if top_vol:
                 st.bar_chart(pd.DataFrame(top_vol, columns=["feature", "importance"]).set_index("feature"))
             else:
                 st.caption("No feature importances available.")
-        with c3:
+        with d3:
             st.markdown("**Return – key signals**")
             if top_ret:
                 st.bar_chart(pd.DataFrame(top_ret, columns=["feature", "importance"]).set_index("feature"))
@@ -440,16 +452,26 @@ else:
             language="bash",
         )
 
+    if not DATA_PATH.exists():
+        st.error(
+            f"Training data not found at: {DATA_PATH}\n\n"
+            "Fix by ensuring the parquet is included in your Docker build context "
+            "(or copied into the container).",
+            icon="🧨",
+        )
+        st.stop()
+
     run_diag = st.checkbox("Run evaluation metrics (may take a few seconds)", value=False)
 
     if not run_diag:
         st.info("Enable the checkbox above to compute diagnostics.")
     else:
-        df = load_training_data()
-        feature_cols = get_feature_cols(df)
+        with st.spinner("Running diagnostics..."):
+            df = load_training_data()
+            feature_cols = get_feature_cols(df)
 
-        eval_df = df.sample(min(1000, len(df)), random_state=0)
-        X_eval = eval_df[feature_cols]
+            eval_df = df.sample(min(1000, len(df)), random_state=0)
+            X_eval = eval_df[feature_cols]
 
         tab_dir, tab_vol, tab_ret = st.tabs(
             ["Direction model", "Volatility regime model", "Return regression"]
