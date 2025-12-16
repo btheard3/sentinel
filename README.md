@@ -8,6 +8,25 @@ Sentinel is a **sweep interpreter**: it scores an options sweep on (1) direction
 ## What Sentinel is not
 It is **not** a trading bot and does **not** predict exact prices. It’s designed to **rank and contextualize** sweeps.
 
+## What is an Options Sweep?
+
+An **options sweep** is a large, aggressive options trade that executes across multiple exchanges in rapid succession, typically at the ask (for calls) or bid (for puts).
+
+In practice, sweeps are often interpreted as:
+- **Urgent positioning** by institutional or informed traders
+- **Directional intent** rather than passive hedging
+- A signal that someone is willing to pay up for exposure
+
+Each row in Sentinel’s dataset represents **one historical sweep**, enriched with:
+- Price context (spot, strike, spreads)
+- Flow intensity (volume, open interest dynamics)
+- Volatility-aware features
+- Forward-looking labels (next-day direction, regime, return)
+
+Sentinel does **not** assume sweeps are always “smart money.”
+Instead, it evaluates:
+> *When sweeps historically mattered — and when they didn’t.*
+
 ## Data
 Sentinel uses a historical engineered sweep dataset:
 - File: `data/processed/tradyflow_training.parquet`
