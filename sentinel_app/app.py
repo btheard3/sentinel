@@ -34,6 +34,10 @@ PROJECT_ROOT = APP_DIR.parent                      # .../sentinel
 MODELS_DIR = PROJECT_ROOT / "models"
 DATA_PATH = PROJECT_ROOT / "data" / "processed" / "tradyflow_training.parquet"
 
+# ---------- Phase 2: session flags for UX ----------
+if "show_whatif" not in st.session_state:
+    st.session_state.show_whatif = False
+
 # ---------- Global UI CSS (narrow + readable) ----------
 st.markdown(
     """
@@ -82,6 +86,7 @@ st.info(
     icon="🧭",
 )
 
+st.caption("Quick start: pick a sweep on the left → read the 3 KPIs → optionally run What-If for sensitivity.")
 
 # ---------- Sidebar: mode + env ----------
 with st.sidebar:
@@ -97,6 +102,11 @@ with st.sidebar:
 
     if OPENAI_API_KEY is None:
         st.warning("OPENAI_API_KEY is not set. AI explanations will be disabled.", icon="⚠️")
+
+    # ---- Phase 2: keep the app calm by default ----
+    st.markdown("## Display")
+    SHOW_ADVANCED_DETAILS = st.toggle("Show advanced details", value=False)
+    st.caption("Off = cleaner view. On = engineered table + feature-importance charts.")
 
 # ---------- Helpers ----------
 @st.cache_resource
@@ -234,10 +244,14 @@ if VIEW_MODE == "User view":
         df = load_training_data()
         feature_cols = get_feature_cols(df)
 
-    st.write(
-        f"Training dataset loaded with **{len(df)}** rows and "
-        f"**{len(feature_cols)}** numeric features."
-    )
+    st.caption(f"Dataset: **{len(df)} rows**, **{len(feature_cols)} numeric features**.")
+
+    with st.expander("Data details (optional)", expanded=False):
+        st.write(
+            f"Training dataset loaded with **{len(df)}** rows and "
+            f"**{len(feature_cols)}** numeric features."
+        )
+        st.caption("This is the offline dataset used to train these baseline models.")
 
     # Sidebar: pick a sample sweep
     with st.sidebar:
@@ -289,153 +303,172 @@ if VIEW_MODE == "User view":
             "Higher magnitude = bigger expected move",
         )
 
-    # --- Interpretation cards (static) ---
-    st.markdown("### What these numbers usually mean")
-    a, b, c = st.columns(3)
+    # --- Phase 2: collapse the interpretation block by default ---
+    with st.expander("How to interpret these 3 outputs", expanded=False):
+        st.markdown("### What these numbers usually mean")
+        a, b, c = st.columns(3)
 
-    with a:
-        st.caption("**Directional Bias**")
-        st.write(
-            "- ~50% = no edge\n"
-            "- 55%+ = mild bullish tilt\n"
-            "- 60%+ = stronger signal (still not a guarantee)"
-        )
+        with a:
+            st.caption("**Directional Bias**")
+            st.write(
+                "- ~50% = no edge\n"
+                "- 55%+ = mild bullish tilt\n"
+                "- 60%+ = stronger signal (still not a guarantee)"
+            )
 
-    with b:
-        st.caption("**Volatility Context**")
-        st.write(
-            "- Normal = calmer tape\n"
-            "- High vol = wider swings, harder risk control\n"
-            "- High vol + weak bias = be cautious"
-        )
+        with b:
+            st.caption("**Volatility Context**")
+            st.write(
+                "- Normal = calmer tape\n"
+                "- High vol = wider swings, harder risk control\n"
+                "- High vol + weak bias = be cautious"
+            )
 
-    with c:
-        st.caption("**Expected Move**")
-        st.write(
-            "- Near 0 = noise / tiny move\n"
-            "- Bigger magnitude = bigger expected swing\n"
-            "- Use for ranking, not precision"
-        )
+        with c:
+            st.caption("**Expected Move**")
+            st.write(
+                "- Near 0 = noise / tiny move\n"
+                "- Bigger magnitude = bigger expected swing\n"
+                "- Use for ranking, not precision"
+            )
 
-    # Hide engineered features by default
-    with st.expander("Selected Sweep (engineered features)", expanded=False):
-        st.dataframe(sample[feature_cols], use_container_width=True, height=220)
+    # ---------- Phase 2: hide engineered features unless advanced details enabled ----------
+    if SHOW_ADVANCED_DETAILS:
+        with st.expander("Selected Sweep (engineered features)", expanded=False):
+            st.dataframe(sample[feature_cols], use_container_width=True, height=220)
 
-    # ---------- Manual Sweep Input ----------
-    st.subheader("What-If Scenario Analysis")
+    # ---------- Manual Sweep Input (Phase 2: collapsed by default + auto-opens after run) ----------
+    with st.expander("What-If Scenario Analysis", expanded=st.session_state.show_whatif):
 
-    with st.expander("What this panel does", expanded=False):
-        st.markdown(
-            """
+        st.caption("Optional: tweak a few knobs to see how sensitive the models are to spread/flow changes.")
+
+        with st.expander("What this panel does", expanded=False):
+            st.markdown(
+                """
 - Starts from the selected sweep row (engineered features)
 - Lets you tweak a few knobs (Spot/Strike/Spread/Flow)
 - Re-runs the same trained models
 - Returns a plain-English interpretation (if OpenAI key is set)
 """
+            )
+
+        base_row = sample[feature_cols].copy()
+
+        editable_features = ["Spot", "Strike", "spread_pct", "flow_intensity"]
+        manual_inputs = {}
+
+        cols = st.columns(len(editable_features))
+        for col, feat in zip(cols, editable_features):
+            with col:
+                if feat not in base_row.columns:
+                    st.write(f"⚠️ Missing feature: `{feat}`")
+                    manual_inputs[feat] = None
+                    continue
+
+                original_val = float(base_row.iloc[0][feat])
+                manual_val = st.number_input(
+                    feat,
+                    value=original_val,
+                    step=abs(original_val) * 0.01 if original_val != 0 else 0.01,
+                    format="%.6f",
+                )
+                manual_inputs[feat] = manual_val
+                # Keep your existing behavior (no pandas .loc changes that might cause warnings)
+                base_row.iloc[0][feat] = manual_val
+
+        run_manual = st.button("Run Manual Prediction", type="primary")
+
+        st.markdown("---")
+        st.markdown("### Manual Input Predictions")
+
+        if run_manual:
+            st.session_state.show_whatif = True
+
+            X_manual = base_row[feature_cols]
+
+            manual_dir_proba_up = models["direction_rf"].predict_proba(X_manual)[0, 1]
+            manual_vol_pred = models["volregime_rf"].predict(X_manual)[0]
+            manual_vol_proba = models["volregime_rf"].predict_proba(X_manual)[0, int(manual_vol_pred)]
+            manual_next_ret_pred = float(models["nextret_rf"].predict(X_manual)[0])
+
+            manual_vol_label = "🌪 High volatility" if manual_vol_pred == 1 else "🌤 Normal volatility"
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric(
+                    "Directional Bias (Probability) — What-If",
+                    f"{manual_dir_proba_up:.1%}",
+                    "Bullish" if manual_dir_proba_up >= 0.55 else ("Bearish/Neutral" if manual_dir_proba_up <= 0.45 else "Mixed"),
+                )
+            with c2:
+                st.metric(
+                    "Volatility Context — What-If",
+                    manual_vol_label,
+                    f"Model confidence {manual_vol_proba:.1%}",
+                )
+            with c3:
+                st.metric(
+                    "Expected Next-Day Move — What-If",
+                    f"{manual_next_ret_pred:.3f}  (~{manual_next_ret_pred*100:.2f}%)",
+                    "Higher magnitude = bigger expected move",
+                )
+
+            st.markdown("#### AI interpretation of this manual sweep")
+            ai_text = generate_manual_ai_summary(
+                manual_inputs=manual_inputs,
+                dir_proba_up=manual_dir_proba_up,
+                vol_label=manual_vol_label,
+                vol_proba=manual_vol_proba,
+                next_ret_pred=manual_next_ret_pred,
+            )
+            st.write(ai_text)
+        else:
+            st.info("Adjust the fields above and click **Run Manual Prediction**.")
+
+    # ---------- What drove this prediction (Phase 2: hide unless advanced details enabled) ----------
+    if SHOW_ADVANCED_DETAILS:
+        st.subheader("What Drove This Prediction")
+        st.caption(
+            "These charts show which features the models rely on most overall — "
+            "not a breakdown of this single sweep."
         )
 
-    base_row = sample[feature_cols].copy()
+        with st.expander("Why the model thinks this (optional)", expanded=False):
+            top_dir = get_top_features(models["direction_rf"], feature_cols, k=5)
+            top_vol = get_top_features(models["volregime_rf"], feature_cols, k=5)
+            top_ret = get_top_features(models["nextret_rf"], feature_cols, k=5)
 
-    editable_features = ["Spot", "Strike", "spread_pct", "flow_intensity"]
-    manual_inputs = {}
+            d1, d2, d3 = st.columns(3)
+            with d1:
+                st.markdown("**Direction – key signals**")
+                if top_dir:
+                    st.bar_chart(pd.DataFrame(top_dir, columns=["feature", "importance"]).set_index("feature"))
+                else:
+                    st.caption("No feature importances available.")
+            with d2:
+                st.markdown("**Vol regime – key signals**")
+                if top_vol:
+                    st.bar_chart(pd.DataFrame(top_vol, columns=["feature", "importance"]).set_index("feature"))
+                else:
+                    st.caption("No feature importances available.")
+            with d3:
+                st.markdown("**Return – key signals**")
+                if top_ret:
+                    st.bar_chart(pd.DataFrame(top_ret, columns=["feature", "importance"]).set_index("feature"))
+                else:
+                    st.caption("No feature importances available.")
 
-    cols = st.columns(len(editable_features))
-    for col, feat in zip(cols, editable_features):
-        with col:
-            if feat not in base_row.columns:
-                st.write(f"⚠️ Missing feature: `{feat}`")
-                manual_inputs[feat] = None
-                continue
+    st.warning(
+        """
+**Limitations (read this like a grown-up)**
 
-            original_val = float(base_row.iloc[0][feat])
-            manual_val = st.number_input(
-                feat,
-                value=original_val,
-                step=abs(original_val) * 0.01 if original_val != 0 else 0.01,
-                format="%.6f",
-            )
-            manual_inputs[feat] = manual_val
-            base_row.iloc[0][feat] = manual_val
-
-    run_manual = st.button("Run Manual Prediction", type="primary")
-
-    st.markdown("---")
-    st.markdown("### Manual Input Predictions")
-
-    if run_manual:
-        X_manual = base_row[feature_cols]
-
-        manual_dir_proba_up = models["direction_rf"].predict_proba(X_manual)[0, 1]
-        manual_vol_pred = models["volregime_rf"].predict(X_manual)[0]
-        manual_vol_proba = models["volregime_rf"].predict_proba(X_manual)[0, int(manual_vol_pred)]
-        manual_next_ret_pred = float(models["nextret_rf"].predict(X_manual)[0])
-
-        manual_vol_label = "🌪 High volatility" if manual_vol_pred == 1 else "🌤 Normal volatility"
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric(
-                "Directional Bias (Probability) — What-If",
-                f"{manual_dir_proba_up:.1%}",
-                "Bullish" if manual_dir_proba_up >= 0.55 else ("Bearish/Neutral" if manual_dir_proba_up <= 0.45 else "Mixed"),
-            )
-        with c2:
-            st.metric(
-                "Volatility Context — What-If",
-                manual_vol_label,
-                f"Model confidence {manual_vol_proba:.1%}",
-            )
-        with c3:
-            st.metric(
-                "Expected Next-Day Move — What-If",
-                f"{manual_next_ret_pred:.3f}  (~{manual_next_ret_pred*100:.2f}%)",
-                "Higher magnitude = bigger expected move",
-            )
-
-        st.markdown("#### AI interpretation of this manual sweep")
-        ai_text = generate_manual_ai_summary(
-            manual_inputs=manual_inputs,
-            dir_proba_up=manual_dir_proba_up,
-            vol_label=manual_vol_label,
-            vol_proba=manual_vol_proba,
-            next_ret_pred=manual_next_ret_pred,
-        )
-        st.write(ai_text)
-    else:
-        st.info("Adjust the fields above and click **Run Manual Prediction**.")
-
-    # ---------- What drove this prediction ----------
-    st.subheader("What Drove This Prediction")
-    st.caption(
-        "These charts show which features the models rely on most overall — "
-        "not a breakdown of this single sweep."
+- Short-horizon returns are noisy; this is **probabilistic**, not certain.
+- Sentinel does **not** size trades, check liquidity, or manage risk for you.
+- This is a **portfolio-grade demo** until live market ingestion is added.
+- Use outputs for **ranking and context**, not blind execution.
+""",
+        icon="⚠️",
     )
-
-    with st.expander("Why the model thinks this (optional)", expanded=False):
-        top_dir = get_top_features(models["direction_rf"], feature_cols, k=5)
-        top_vol = get_top_features(models["volregime_rf"], feature_cols, k=5)
-        top_ret = get_top_features(models["nextret_rf"], feature_cols, k=5)
-
-        d1, d2, d3 = st.columns(3)
-        with d1:
-            st.markdown("**Direction – key signals**")
-            if top_dir:
-                st.bar_chart(pd.DataFrame(top_dir, columns=["feature", "importance"]).set_index("feature"))
-            else:
-                st.caption("No feature importances available.")
-        with d2:
-            st.markdown("**Vol regime – key signals**")
-            if top_vol:
-                st.bar_chart(pd.DataFrame(top_vol, columns=["feature", "importance"]).set_index("feature"))
-            else:
-                st.caption("No feature importances available.")
-        with d3:
-            st.markdown("**Return – key signals**")
-            if top_ret:
-                st.bar_chart(pd.DataFrame(top_ret, columns=["feature", "importance"]).set_index("feature"))
-            else:
-                st.caption("No feature importances available.")
-
 
 # ============================
 # DIAGNOSTICS VIEW
