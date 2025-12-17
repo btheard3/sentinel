@@ -76,3 +76,19 @@ This app is deployed on Azure Container Apps via GitHub Actions CI/CD.
 - Performance depends on dataset coverage and feature stability
 
 - Live sweep ingestion is not wired in this baseline release
+
+## Testing & Validation
+
+Sentinel includes a lightweight test suite to ensure scoring logic is stable,
+inputs are validated, and data pipelines behave as expected.
+
+Tests cover:
+- Input validation (invalid tickers, malformed data)
+- Data pipeline integrity
+- Model scoring consistency
+- Application wiring and outputs
+
+The goal is not exhaustive testing, but early detection of failures
+that would invalidate sweep interpretation.
+
+> For example, test_models.py ensures score stability given identical sweep inputs.
