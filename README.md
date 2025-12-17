@@ -11,6 +11,16 @@ Sentinel is an **options sweep interpreter**: it scores a historical sweep on:
 ## What Sentinel is not
 It is **not** a trading bot and does **not** predict exact prices. It’s designed to **rank and contextualize** sweeps.
 
+## The Problem Sentinel Solves
+
+Options sweeps are widely watched but poorly interpreted.
+Most traders rely on heuristics, social feeds, or raw volume signals, which:
+- Overweight noise
+- Ignore volatility regime
+- Fail to rank opportunities systematically
+
+Sentinel addresses this by treating sweep interpretation as a **probabilistic ranking problem**, not a prediction problem.
+
 ## Quickstart (60 seconds)
 1) Open the app and select a **Historical Options Sweep** (left sidebar)  
 2) Read the 3 KPIs at the top  
