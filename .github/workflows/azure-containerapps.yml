@@ -64,6 +64,8 @@ jobs:
             --name $CONTAINERAPP_NAME \
             --resource-group $RESOURCE_GROUP \
             --image "$FULL_IMAGE" \
+            --min-replicas 1 \
+            --max-replicas 2 \
             --set-env-vars \
             SENTINEL_ENV=$SENTINEL_ENV \
             OPENAI_API_KEY=$OPENAI_API_KEY

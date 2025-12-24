@@ -220,7 +220,33 @@ Use 3–5 bullet points. Avoid hype. Be realistic.
         return resp.choices[0].message.content.strip()
     except Exception as exc:
         return f"AI interpretation failed: {exc}"
+    
+# Boot UX (only show once per browser session)
+if "_boot_done" not in st.session_state:
+    st.session_state._boot_done = False
 
+# ---------- Boot sequence: load core artifacts + show progress ----------
+if not st.session_state._boot_done:
+    boot_msg = st.empty()
+    boot_bar = st.progress(0)
+
+    boot_msg.info("Warming up Sentinel… (10%)", icon="⏳")
+    boot_bar.progress(10)
+
+    boot_msg.info("Loading models… (35%)", icon="🧠")
+    boot_bar.progress(35)
+    models = load_models()
+
+    # Keep training data lazy-loaded (only when needed)
+    boot_msg.info("Almost ready… (100%)", icon="✅")
+    boot_bar.progress(100)
+
+    st.session_state._boot_done = True
+    boot_msg.empty()
+    boot_bar.empty()
+else:
+    # Cached models load instantly after the first run
+    models = load_models()
 
 # ---------- Load models (fast) ----------
 with st.spinner("Loading models..."):
