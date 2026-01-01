@@ -1,154 +1,93 @@
-# Sentinel Forecaster
+# Sentinel Forecaster — Interpreting Options Sweeps Under Uncertainty
+🔗 Live App
 
-Interpreting Options Sweeps Under Uncertainty
-
-Live App:
 https://sentinel-baseline-panel.victorioussand-a57f0952.centralus.azurecontainerapps.io/
 
-## The Problem
+## Problem
 
-Options sweeps are widely monitored but routinely misinterpreted.
+Options sweeps are often assumed to represent “smart money” despite weak empirical validation. Large executions without context lead to false certainty.
 
-Large, fast executions are often assumed to represent “smart money” or strong directional intent.
-In practice, many sweeps are hedges, volatility plays, or statistically unremarkable without context.
+## Why This Problem Matters
 
-Relying on sweep size or social heuristics creates false certainty and poor risk decisions.
+Misinterpreting flow leads to:
 
----
+- Directional overconfidence
 
-## Why This Matters
+- Volatility blindness
 
-The challenge is not detecting sweeps — it is knowing **when a sweep historically mattered**.
+- Fragile decision-making
 
-Most retail tools surface activity, not context.
-Sentinel was built to provide probabilistic interpretation, not trade signals.
+## Data Used
 
----
+- **TradyFlow options sweep dataset (Kaggle)**
 
-## What Was Built
+- Each row represents a historical sweep with engineered features and labeled outcomes
 
-Sentinel evaluates a *single historical options* sweep using three independent lenses:
+## Approach
 
-1. **Directional Bias**
-Probability the underlying moves up the next trading day
+- Sweep-level feature engineering
 
-2. **Volatility Context**
-Classification of the market environment (Normal vs High Vol)
+- Probabilistic scoring across:
 
-3. **Expected Next-Day Move**
-Rough magnitude estimate used for ranking, not precision
+    - Directional bias
 
-The system is intentionally conservative and interpretability-first.
+    - Volatility regime
 
----
+    - Expected impact
 
-## Data
+- Offline-trained baseline models loaded by a live Streamlit app
 
-- Public options sweep dataset (TradyFlow via Kaggle)
+This is a **decision-support system**, not a trading bot.
 
-- File: `data/processed/tradyflow_training.parquet`
+## Evaluation & Findings
 
-- Each row represents one historical sweep with:
+- Most sweeps cluster near neutral probabilities
 
-    - Price & flow features
+- Volatility regime matters more than strike selection
 
-    - Volatility-aware engineered inputs
-
-    - Next-day direction, regime, and return labels
-
-Fully local and reproducible.
-
----
-
-## Modeling
-
-Sentinel uses three baseline models:
-
-- Direction classifier → `P(Direction Up)`
-
-- Volatility regime classifier → Normal vs High Vol
-
-- Return regression head → predicted next-day return magnitude
-
-Models are trained offline and loaded by the Streamlit app at runtime.
-
----
-
-## What Happened
-
-Key observations from analysis:
-
-- Most sweeps cluster near ~50% directional probability
-
-- Volatility regime materially alters outcome distributions
-
-- Magnitude estimates are more useful for ranking than forecasting
-
-- Large sweeps alone are weak signals without context
-
-In many cases, Sentinel indicated **low informational value**, helping avoid over-trading.
-
----
+- Sweep size alone is a weak signal
 
 ## Limitations
 
-- Short-horizon returns are highly noisy
+- No live sweep ingestion
+
+- Short-horizon noise
 
 - No execution or PnL modeling
 
-- No live sweep ingestion in this baseline
+## Planned Next Steps
 
-- Performance depends on regime stability and dataset coverage
+- Probability calibration curves
 
-This is a **decision-support tool**, not a trading system.
+- Structural clustering of sweeps
 
----
+- Portfolio-level aggregation views
 
-## Future Work
+## Reproducibility — Run Locally
 
-Planned next steps include:
-
-- Live sweep ingestion and streaming updates
-
-- Regime-aware retraining and drift monitoring
-
-- Strategy-specific overlays (e.g., earnings, index vs single-name)
-
-- Portfolio-level aggregation across multiple sweeps
-
-- Extended horizon labels beyond next-day returns
-
-These extensions build on the same interpretability-first foundation.
-
----
-
-## Reproducibility
+Option 1: Streamlit
 ```bash
+git clone https://github.com/btheard3/sentinel
+cd sentinel
 pip install -r requirements.txt
 streamlit run sentinel_app/app.py
 ```
 
-
-Docker:
+Option 2: Docker
 ```bash
 docker build -t sentinel .
 docker run -p 8501:8501 sentinel
 ```
----
 
-## What This Demonstrates
+## Portfolio Context
 
-- Applied ML in a noisy financial domain
+**Flow interpretation layer** — converts noisy options activity into probabilistic context.
 
-- Volatility-aware modeling
+Author
 
-- Probabilistic reasoning over heuristics
+Brandon Theard
+Data Scientist | Decision-Support Systems
 
-- Production deployment (Streamlit + Azure)
+GitHub: https://github.com/btheard3
 
-- Clear separation of modeling and interpretation
-
----
-
-Author: Brandon Theard
-Data Scientist | Decision Support Systems
+LinkedIn: https://www.linkedin.com/in/brandon-theard-811b38131/
