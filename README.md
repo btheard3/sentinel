@@ -83,7 +83,7 @@ docker run -p 8501:8501 sentinel
 
 **Flow interpretation layer** — converts noisy options activity into probabilistic context.
 
-Author
+## Author
 
 Brandon Theard
 Data Scientist | Decision-Support Systems
